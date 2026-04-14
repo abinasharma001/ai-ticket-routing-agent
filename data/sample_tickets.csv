@@ -1,0 +1,21 @@
+title,description,category,resolution,priority
+VPN connection drops for remote users,Remote staff lose VPN access every few minutes during work hours.,Network,Adjust VPN keepalive settings and verify gateway stability,High
+Application login page returns 500,Users receive a server error when signing into the portal.,Application,Restart the app service and check the authentication backend,High
+Suspicious MFA prompts detected,Multiple users report unexpected MFA prompts after failed login attempts.,Security,Block suspicious IPs and review conditional access policies,Critical
+Database backup job failed overnight,The nightly database backup could not reach the target mount.,Database,Restore the storage mount and rerun the backup job,High
+Shared storage volume nearly full,New uploads fail because the file share is above capacity.,Storage,Archive stale data and expand the storage volume,Medium
+New employee cannot access payroll system,Access request is pending and the user cannot open the payroll portal.,Access Management,Approve the role-based access package and sync group membership,High
+Server CPU spikes after patch deployment,Production servers are hitting sustained high CPU usage after the latest patch rollout.,Infrastructure,Rollback the patch on affected nodes and reschedule after capacity review,Critical
+Email service delays during peak hours,Users report delayed email delivery and intermittent mailbox sync issues.,Application,Restart the mail connector and increase processing capacity,Medium
+Firewall rule blocks approved vendor traffic,A vendor application is unable to connect due to a newly added firewall rule.,Security,Review the rule change and add an approved exception if needed,High
+Database replication lag increasing,The read replica is lagging behind the primary by several minutes during peak load.,Database,Rebalance long-running queries and increase replica throughput,High
+Shared drive permissions missing for finance team,Finance users cannot open a shared folder after a group update.,Access Management,Restore the finance group permissions and validate access,High
+Storage array latency above threshold,File operations are slow and storage monitoring shows elevated latency.,Storage,Check disk health and rebalance workloads across the array,High
+Core switch port flapping,Network monitoring shows a switch port repeatedly going up and down.,Network,Replace the cable and verify switch port stability,Critical
+Application search results are incomplete,Users report missing records when searching the internal portal.,Application,Rebuild the search index and validate query permissions,Medium
+Unauthorized access alert on admin account,The SIEM triggered an alert for a suspicious admin login from a foreign IP.,Security,Disable the session, reset credentials, and investigate the account,Critical
+Database query timing out on report export,Large report exports time out before completion.,Database,Optimize the query and schedule the export during off-peak hours,Medium
+Backup storage target unavailable,The backup application cannot write to the target repository.,Storage,Restore the repository connection and retry the backup job,High
+Office Wi-Fi disconnects intermittently,Users in the east wing lose Wi-Fi connectivity several times per day.,Network,Check access point interference and update firmware,Medium
+Password reset requests are not syncing,Users cannot complete password resets after the identity platform update.,Access Management,Verify directory sync and restart the identity connector,High
+Application deployment fails in staging,The release pipeline fails during the deploy step with a package validation error.,Application,Fix the package artifact and rerun the deployment pipeline,Medium

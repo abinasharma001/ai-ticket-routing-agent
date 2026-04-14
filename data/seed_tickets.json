@@ -1,0 +1,134 @@
+[
+  {
+    "id": 1,
+    "subject": "Server CPU spikes after patch deployment",
+    "description": "Production servers are hitting sustained high CPU usage after the latest security patch rollout.",
+    "category": "Infrastructure",
+    "department": "Infrastructure Operations",
+    "resolution": "Rolled back the patch on affected nodes and rescheduled rollout after capacity review.",
+    "created_at": "2026-04-01T10:00:00",
+    "updated_at": "2026-04-01T10:05:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 2,
+    "subject": "Application login page returns 500",
+    "description": "Users cannot sign in and receive a 500 error on the authentication page.",
+    "category": "Application",
+    "department": "Application Support",
+    "resolution": "Restarted the auth service and cleared the stale session cache.",
+    "created_at": "2026-04-01T11:00:00",
+    "updated_at": "2026-04-01T11:05:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 3,
+    "subject": "Suspicious MFA prompts detected",
+    "description": "Multiple users report unexpected MFA prompts after failed login attempts from foreign IP addresses.",
+    "category": "Security",
+    "department": "Security Operations",
+    "resolution": "Blocked the source IPs, reset impacted credentials, and reviewed conditional access rules.",
+    "created_at": "2026-04-01T12:00:00",
+    "updated_at": "2026-04-01T12:08:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 4,
+    "subject": "Database replication lag increasing",
+    "description": "The read replica is lagging behind the primary by several minutes during peak load.",
+    "category": "Database",
+    "department": "Database Administration",
+    "resolution": "Rebalanced long-running queries and increased replica throughput.",
+    "created_at": "2026-04-02T09:00:00",
+    "updated_at": "2026-04-02T09:06:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 5,
+    "subject": "Shared storage volume nearly full",
+    "description": "The file share volume is above 95 percent capacity and new uploads are failing.",
+    "category": "Storage",
+    "department": "Storage Services",
+    "resolution": "Archived stale data and expanded the volume capacity.",
+    "created_at": "2026-04-02T10:00:00",
+    "updated_at": "2026-04-02T10:10:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 6,
+    "subject": "VPN connections intermittently dropping",
+    "description": "Remote users lose VPN connectivity every few minutes, especially during large transfers.",
+    "category": "Network",
+    "department": "Network Operations",
+    "resolution": "Adjusted tunnel keepalive settings and verified the WAN path stability.",
+    "created_at": "2026-04-02T11:00:00",
+    "updated_at": "2026-04-02T11:05:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 7,
+    "subject": "New employee cannot access payroll system",
+    "description": "Access request is pending and the user cannot see the payroll application after onboarding.",
+    "category": "Access Management",
+    "department": "Identity and Access Management",
+    "resolution": "Approved the role-based access package and synced group membership.",
+    "created_at": "2026-04-02T12:00:00",
+    "updated_at": "2026-04-02T12:03:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 8,
+    "subject": "Disk failure alert on backup server",
+    "description": "Hardware monitoring reports failed disks on the backup appliance and degraded performance.",
+    "category": "Infrastructure",
+    "department": "Infrastructure Operations",
+    "resolution": "Replaced the failing drives and rebuilt the backup array.",
+    "created_at": "2026-04-03T09:00:00",
+    "updated_at": "2026-04-03T09:12:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 9,
+    "subject": "API service timeout during checkout",
+    "description": "The order service times out when calling the payment API and blocks checkout.",
+    "category": "Application",
+    "department": "Application Support",
+    "resolution": "Increased API timeout limits and fixed the failing downstream dependency.",
+    "created_at": "2026-04-03T10:00:00",
+    "updated_at": "2026-04-03T10:08:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 10,
+    "subject": "Privilege escalation attempt flagged",
+    "description": "Security monitoring detected repeated attempts to elevate access privileges without approval.",
+    "category": "Security",
+    "department": "Security Operations",
+    "resolution": "Investigated the account activity, revoked the token, and opened a security case.",
+    "created_at": "2026-04-03T11:00:00",
+    "updated_at": "2026-04-03T11:05:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 11,
+    "subject": "Database backup job failed overnight",
+    "description": "The nightly backup task failed because the target path was unavailable during the run window.",
+    "category": "Database",
+    "department": "Database Administration",
+    "resolution": "Fixed the storage mount and reran the backup successfully.",
+    "created_at": "2026-04-04T09:00:00",
+    "updated_at": "2026-04-04T09:05:00",
+    "metadata": {"source": "seed"}
+  },
+  {
+    "id": 12,
+    "subject": "File share permissions missing for finance team",
+    "description": "Users in finance cannot open the shared drive because the ACL is missing the group entry.",
+    "category": "Access Management",
+    "department": "Identity and Access Management",
+    "resolution": "Restored the finance group permissions and validated access with a test user.",
+    "created_at": "2026-04-04T10:00:00",
+    "updated_at": "2026-04-04T10:04:00",
+    "metadata": {"source": "seed"}
+  }
+]
