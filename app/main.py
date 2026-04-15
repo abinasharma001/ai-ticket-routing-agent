@@ -18,6 +18,10 @@ from app.utils.logging import configure_logging
 from app.utils.preprocessing import clean_text
 
 
+# =========================
+# REQUEST / RESPONSE MODELS
+# =========================
+
 class PredictRequest(BaseModel):
     title: str = Field(default="")
     description: str = Field(default="")
@@ -33,6 +37,10 @@ class PredictResponse(BaseModel):
     similar_tickets: list[Any]
 
 
+# =========================
+# APP STATE
+# =========================
+
 @dataclass
 class AppState:
     classifier: TicketClassifier
@@ -40,7 +48,11 @@ class AppState:
     escalation_service: EscalationService
 
 
-DEFAULT_TRAINING_DATA: list[dict[str, str]] = [
+# =========================
+# SAMPLE TRAINING DATA
+# =========================
+
+DEFAULT_TRAINING_DATA = [
     {
         "title": "VPN connection drops for remote users",
         "description": "Remote staff cannot stay connected to the VPN during work hours.",
@@ -65,32 +77,22 @@ DEFAULT_TRAINING_DATA: list[dict[str, str]] = [
         "category": "Database",
         "resolution": "Restore the storage mount and rerun the backup job.",
     },
-    {
-        "title": "Shared storage volume nearly full",
-        "description": "New uploads fail because the file share is above capacity.",
-        "category": "Storage",
-        "resolution": "Archive stale data and expand the storage volume.",
-    },
-    {
-        "title": "New employee cannot access payroll system",
-        "description": "Access request is pending and the user cannot open the payroll portal.",
-        "category": "Access Management",
-        "resolution": "Approve the role-based access package and sync group membership.",
-    },
-    {
-        "title": "Server CPU spikes after patch deployment",
-        "description": "Production servers are hitting sustained high CPU usage after the latest patch rollout.",
-        "category": "Infrastructure",
-        "resolution": "Rollback the patch on affected nodes and reschedule after capacity review.",
-    },
 ]
 
+
+# =========================
+# APP STARTUP (IMPORTANT)
+# =========================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(LOG_LEVEL)
-    logger.info("Starting {} with model {}", app.title, MODEL_NAME)
-    training_texts = [clean_text(f"{item['title']} {item['description']}") for item in DEFAULT_TRAINING_DATA]
+    logger.info("🚀 Starting app with model {}", MODEL_NAME)
+
+    training_texts = [
+        clean_text(f"{item['title']} {item['description']}")
+        for item in DEFAULT_TRAINING_DATA
+    ]
     training_labels = [item["category"] for item in DEFAULT_TRAINING_DATA]
 
     classifier = TicketClassifier()
@@ -99,92 +101,88 @@ async def lifespan(app: FastAPI):
     build_index(
         [
             {
-                "id": index + 1,
+                "id": i + 1,
                 "subject": item["title"],
                 "description": item["description"],
                 "resolution": item["resolution"],
                 "category": item["category"],
             }
-            for index, item in enumerate(DEFAULT_TRAINING_DATA)
+            for i, item in enumerate(DEFAULT_TRAINING_DATA)
         ]
     )
 
     app.state.app_state = AppState(
         classifier=classifier,
         resolution_service=ResolutionService(),
-        escalation_service=EscalationService(confidence_threshold=0.5, similarity_threshold=0.4),
+        escalation_service=EscalationService(
+            confidence_threshold=0.5,
+            similarity_threshold=0.4,
+        ),
     )
-    logger.info("Application state initialized and retrieval index built")
+
+    logger.info("✅ App initialized successfully")
     yield
 
 
+# =========================
+# FASTAPI APP
+# =========================
+
 app = FastAPI(
-    title="AI Powered Intelligent Ticket Routing & Resolution Agent",
-    description="FastAPI service for AI ticket classification, routing, retrieval, resolution, and escalation.",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    title="AI Ticket Routing API",
+    version="1.0",
     lifespan=lifespan,
 )
 
 
+# =========================
+# HEALTH CHECK (VERY IMPORTANT)
+# =========================
+
+@app.get("/")
+def root():
+    return {"message": "API is running 🚀"}
+
+
 @app.get("/health")
-def health_check() -> dict[str, str]:
+def health():
     return {"status": "ok"}
 
 
+# =========================
+# MAIN API
+# =========================
+
 @app.post("/predict", response_model=PredictResponse)
-def predict_ticket(payload: PredictRequest) -> PredictResponse:
-    """Predict category, route department, retrieve similar tickets, and return resolution/escalation."""
+def predict_ticket(payload: PredictRequest):
     state: AppState = app.state.app_state
 
-    combined_text = clean_text(f"{payload.title} {payload.description}")
-    prediction = state.classifier.predict_ticket(combined_text)
-    category = str(prediction["label"])
-    confidence = float(prediction["confidence"])
+    text = clean_text(f"{payload.title} {payload.description}")
+
+    prediction = state.classifier.predict_ticket(text)
+
+    category = prediction["label"]
+    confidence = prediction["confidence"]
+
     department = route_category_to_department(category)
 
-    retrieved_tickets = retrieve_similar_tickets(combined_text)
-    resolution_result = state.resolution_service.suggest_best_resolution(retrieved_tickets)
-    similarity_score = float(resolution_result["similarity_score"])
+    retrieved = retrieve_similar_tickets(text)
+
+    resolution_result = state.resolution_service.suggest_best_resolution(retrieved)
+
+    similarity_score = resolution_result["similarity_score"]
+
     escalation_result = state.escalation_service.should_escalate(
         confidence=confidence,
         similarity=similarity_score,
-    )
-
-    escalation_flag = bool(escalation_result["escalation_flag"])
-    reason = str(escalation_result["reason"])
-
-    similarity_values = [
-        float(ticket.get("similarity", 0.0))
-        for ticket in retrieved_tickets
-        if isinstance(ticket, dict)
-    ]
-
-    logger.info(
-        "Confidence score={:.2f}",
-        confidence,
-    )
-    logger.info("Similarity scores={}", similarity_values)
-    logger.info(
-        "Escalation decision={} reason='{}'",
-        escalation_flag,
-        reason,
-    )
-    logger.info(
-        "Predicted category={} department={} confidence={:.2f}",
-        category,
-        department,
-        confidence,
     )
 
     return PredictResponse(
         category=category,
         department=department,
         confidence=confidence,
-        resolution=str(resolution_result["best_resolution"]),
-        escalation=escalation_flag,
-        reason=reason,
-        similar_tickets=retrieved_tickets,
+        resolution=resolution_result["best_resolution"],
+        escalation=escalation_result["escalation_flag"],
+        reason=escalation_result["reason"],
+        similar_tickets=retrieved,
     )
