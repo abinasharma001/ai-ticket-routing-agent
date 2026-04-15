@@ -1,25 +1,70 @@
 from fastapi import FastAPI, HTTPException
-from contextlib import asynccontextmanager
+from pydantic import BaseModel
 from loguru import logger
 
-# Lazy-loaded globals
-classifier = None
-routing_service = None
+from app.models.classifier import TicketClassifier
+from app.services.routing_service import route_category_to_department
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("🚀 Starting FastAPI app (light mode)...")
-    yield
-    logger.info("🛑 Shutting down app...")
+# ------------------------------
+# GLOBAL MODEL
+# ------------------------------
+
+classifier = TicketClassifier()
+is_trained = False
+
+# ------------------------------
+# FASTAPI APP
+# ------------------------------
 
 app = FastAPI(
-    title="AI Ticket Routing & Resolution API",
-    version="1.0.0",
-    lifespan=lifespan,
+    title="AI Ticket Routing API",
+    version="1.0.0"
 )
 
 # ------------------------------
-# BASIC ROUTES
+# REQUEST SCHEMA
+# ------------------------------
+
+class TicketRequest(BaseModel):
+    text: str
+
+# ------------------------------
+# AUTO LOAD MODEL (IMPORTANT 🔥)
+# ------------------------------
+
+@app.on_event("startup")
+def load_model():
+    global is_trained
+
+    try:
+        logger.info("🚀 Training model on startup...")
+
+        texts = [
+            "Server is down",
+            "Database connection error",
+            "Login not working",
+            "Network latency issue",
+            "Disk storage full"
+        ]
+
+        labels = [
+            "Infrastructure",
+            "Database",
+            "Application",
+            "Network",
+            "Storage"
+        ]
+
+        classifier.train_model(texts, labels)
+        is_trained = True
+
+        logger.info("✅ Model trained successfully")
+
+    except Exception as e:
+        logger.error(f"❌ Model training failed: {e}")
+
+# ------------------------------
+# ROUTES
 # ------------------------------
 
 @app.get("/")
@@ -30,58 +75,32 @@ def home():
 def health():
     return {"status": "ok"}
 
-# ------------------------------
-# INIT MODEL (LAZY LOAD)
-# ------------------------------
-
-@app.get("/init")
-def initialize_model():
-    global classifier, routing_service
-
-    try:
-        from app.models.classifier import TicketClassifier
-        from app.services.routing_service import RoutingService
-
-        classifier = TicketClassifier()
-        routing_service = RoutingService(classifier)
-
-        return {"message": "Model initialized successfully ✅"}
-
-    except Exception as e:
-        logger.error(f"Initialization failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ------------------------------
-# PREDICT ROUTE
-# ------------------------------
-
 @app.post("/predict")
-def predict_ticket(text: str):
-    global classifier, routing_service
+def predict_ticket(request: TicketRequest):
+    global is_trained
 
-    if classifier is None or routing_service is None:
+    if not is_trained:
         raise HTTPException(
-            status_code=400,
-            detail="Model not initialized. Call /init first."
+            status_code=500,
+            detail="Model not ready"
         )
 
     try:
-        result = routing_service.route_ticket(text)
+        result = classifier.predict_ticket(request.text)
+
+        department = route_category_to_department(result["label"])
 
         return {
-            "input": text,
-            "prediction": result
+            "input": request.text,
+            "category": result["label"],
+            "confidence": result["confidence"],
+            "department": department
         }
 
     except Exception as e:
         logger.error(f"Prediction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ------------------------------
-# SIMPLE TEST ROUTE
-# ------------------------------
 
 @app.get("/test")
 def test():
