@@ -7,7 +7,5 @@ python-dotenv>=1.0.1
 pydantic>=2.8.0
 pydantic-settings>=2.4.0
 loguru>=0.7.2
-openai>=1.40.0
 joblib>=1.4.0
-streamlit>=1.37.0
 requests>=2.32.0
