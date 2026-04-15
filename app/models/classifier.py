@@ -29,7 +29,11 @@ class TicketClassifier:
         default_factory=lambda: Pipeline(
             steps=[
                 ("tfidf", TfidfVectorizer(stop_words="english")),
-                ("clf", LogisticRegression(max_iter=3000, C=3.0, class_weight="balanced")),
+                ("clf", LogisticRegression(
+                    max_iter=3000,
+                    C=3.0,
+                    class_weight="balanced"
+                )),
             ]
         )
     )
@@ -57,12 +61,6 @@ class TicketClassifier:
     def predict_ticket(self, text: str) -> Dict[str, object]:
         """
         Predict ticket category and confidence score.
-
-        Returns:
-        {
-            "label": str,
-            "confidence": float (0–1)
-        }
         """
 
         if not self.is_trained:
@@ -75,7 +73,7 @@ class TicketClassifier:
         confidence = 0.75
 
         # =========================
-        # USE PROBABILITY (BEST METHOD)
+        # PROBABILITY-BASED PREDICTION
         # =========================
         if hasattr(self.model, "predict_proba"):
             probabilities = self.model.predict_proba([cleaned_text])[0]
@@ -86,15 +84,14 @@ class TicketClassifier:
             raw_confidence = float(probabilities[best_index])
 
             # =========================
-            # CONFIDENCE CALIBRATION 🔥
+            # CONFIDENCE CALIBRATION
             # =========================
             confidence = (raw_confidence * 1.5) + 0.2
 
-            # Clamp range for realistic output
+            # Clamp confidence
             confidence = min(max(confidence, 0.5), 0.95)
 
         else:
-            # Fallback if predict_proba not available
             predicted_label = str(self.model.predict([cleaned_text])[0])
             confidence = 0.75
 
@@ -106,12 +103,22 @@ class TicketClassifier:
         }
 
     # =========================
-    # DEBUG / EXPLAINABILITY
+    # API COMPATIBILITY (IMPORTANT)
+    # =========================
+    def predict(self, text: str) -> str:
+        """
+        Used by routing_service.
+        Returns only label.
+        """
+        result = self.predict_ticket(text)
+        return result["label"]
+
+    # =========================
+    # EXPLAINABILITY
     # =========================
     def get_top_features(self, n: int = 10) -> Dict[str, list]:
         """
         Return top important words per class.
-        Useful for debugging and explainability.
         """
         if not self.is_trained:
             raise RuntimeError("Model must be trained before extracting features.")
