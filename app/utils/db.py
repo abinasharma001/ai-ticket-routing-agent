@@ -28,6 +28,17 @@ def init_db():
         )
     """)
     
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prediction_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            input_text TEXT,
+            category TEXT,
+            department TEXT,
+            confidence REAL
+        )
+    """)
+    
     cursor.execute("SELECT COUNT(*) FROM tickets")
     count = cursor.fetchone()[0]
     
@@ -80,3 +91,33 @@ def get_all_tickets() -> List[Dict[str, Any]]:
         tickets.append(ticket)
         
     return tickets
+
+def log_prediction(input_text: str, category: str, department: str, confidence: float):
+    """Log a prediction to the history table."""
+    from datetime import datetime
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO prediction_history (timestamp, input_text, category, department, confidence)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        datetime.utcnow().isoformat(),
+        input_text,
+        category,
+        department,
+        confidence
+    ))
+    conn.commit()
+    conn.close()
+
+def get_prediction_history() -> List[Dict[str, Any]]:
+    """Retrieve all prediction history."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM prediction_history ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [dict(row) for row in rows]

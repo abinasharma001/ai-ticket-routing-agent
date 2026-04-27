@@ -11,9 +11,10 @@ except ImportError:
 
 from app.models.classifier import TicketClassifier
 from app.services.routing_service import route_category_to_department
-from app.utils.db import init_db, get_all_tickets
+from app.utils.db import init_db, get_all_tickets, log_prediction, get_prediction_history
 from app.retriever.retriever import build_index, retrieve_similar_tickets
 from app.services.resolution_service import ResolutionService
+from app.utils.email_service import send_escalation_email
 
 resolution_service = ResolutionService()
 
@@ -39,6 +40,11 @@ app = FastAPI(
 
 class TicketRequest(BaseModel):
     text: str
+
+class EscalationRequest(BaseModel):
+    issue: str
+    category: str
+    department: str
 
 # ------------------------------
 # AUTO LOAD MODEL (IMPORTANT 🔥)
@@ -110,11 +116,14 @@ def process_ticket(text: str):
                 "score": st.get("similarity")
             })
 
+    # Log to history
+    log_prediction(text, result["label"], department, result["confidence"])
+
     return {
         "category": result["label"],
         "department": department,
         "confidence": result["confidence"],
-        "resolution": resolution_data.get("best_resolution"),
+        "solution": resolution_data.get("best_resolution"),
         "similar_tickets": formatted_similar
     }
 
@@ -159,6 +168,17 @@ async def analyze_image(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Image analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+@app.post("/escalate")
+def escalate_ticket(request: EscalationRequest):
+    success = send_escalation_email(request.issue, request.category, request.department)
+    if success:
+        return {"message": "Escalation email sent successfully."}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send escalation email. Check server logs.")
+
+@app.get("/history")
+def get_history():
+    return get_prediction_history()
 
 
 @app.get("/test")
