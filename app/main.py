@@ -155,9 +155,12 @@ async def analyze_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="pytesseract is not installed")
 
     try:
-        content = await file.read()
-        image = Image.open(io.BytesIO(content))
-        extracted_text = pytesseract.image_to_string(image)
+        image = Image.open(file.file)
+        try:
+            extracted_text = pytesseract.image_to_string(image)
+        except Exception as ocr_e:
+            logger.error(f"Tesseract OCR failed. Is Tesseract installed? Error: {ocr_e}")
+            raise HTTPException(status_code=500, detail="OCR engine failure. Ensure Tesseract is installed.")
         
         if not extracted_text.strip():
             raise HTTPException(status_code=400, detail="Could not extract text from image")
@@ -165,16 +168,21 @@ async def analyze_image(file: UploadFile = File(...)):
         result = process_ticket(extracted_text)
         result["extracted_text"] = extracted_text
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Image analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 @app.post("/escalate")
 def escalate_ticket(request: EscalationRequest):
-    success = send_escalation_email(request.issue, request.category, request.department)
-    if success:
-        return {"message": "Escalation email sent successfully."}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to send escalation email. Check server logs.")
+    try:
+        success = send_escalation_email(request.issue, request.category, request.department)
+        if success:
+            return {"message": "Escalation email sent successfully."}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send escalation email. Check server logs.")
+    except ValueError as ve:
+        raise HTTPException(status_code=503, detail=str(ve))
 
 @app.get("/history")
 def get_history():

@@ -4,8 +4,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = None
 
 try:
     import faiss
@@ -25,7 +27,7 @@ class RetrievalItem:
 class SemanticRetriever:
     model_name: str = "all-MiniLM-L6-v2"
     top_k: int = 3
-    model: SentenceTransformer = field(init=False)
+    model: SentenceTransformer | None = field(init=False)
     index: Any = field(default=None, init=False)
     tickets: list[dict[str, Any]] = field(default_factory=list, init=False)
     embeddings: np.ndarray | None = field(default=None, init=False)
@@ -33,7 +35,10 @@ class SemanticRetriever:
 
     def __post_init__(self) -> None:
         """Load the embedding model once during retriever initialization."""
-        self.model = SentenceTransformer(self.model_name)
+        if SentenceTransformer is not None:
+            self.model = SentenceTransformer(self.model_name)
+        else:
+            self.model = None
 
     def build_index(self, data: list[dict[str, Any]]) -> None:
         """Build and cache embeddings/index for retrieval.
@@ -49,6 +54,12 @@ class SemanticRetriever:
 
         signature = self._compute_signature(self.tickets)
         if self._data_signature == signature and self.embeddings is not None and self.index is not None:
+            return
+
+        if self.model is None:
+            self.index = None
+            self.embeddings = None
+            self._data_signature = None
             return
 
         texts = [self._ticket_to_text(ticket) for ticket in self.tickets]
@@ -70,7 +81,7 @@ class SemanticRetriever:
         """
         if not query:
             return ["No similar tickets found. Suggested resolution based on AI model."]
-        if self.index is None or not self.tickets:
+        if self.index is None or not self.tickets or self.model is None:
             return ["No similar tickets found. Suggested resolution based on AI model."]
 
         query_embedding = np.asarray(self.model.encode([query], normalize_embeddings=True), dtype="float32")

@@ -17,8 +17,7 @@ def send_escalation_email(issue: str, category: str, department: str) -> bool:
     
     if not sender_email or not sender_password:
         logger.warning("SMTP_EMAIL or SMTP_PASSWORD not set. Skipping actual email send.")
-        # Return True for demonstration purposes so the UI shows success even if not configured
-        return True
+        raise ValueError("SMTP credentials not configured. Cannot send email.")
         
     try:
         message = MIMEMultipart("alternative")

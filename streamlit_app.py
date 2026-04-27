@@ -30,7 +30,7 @@ with tab1:
         text_payload = f"{title}\n{description}"
         try:
             if uploaded_file is not None:
-                files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
+                files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
                 response = requests.post(ANALYZE_IMAGE_URL, files=files, timeout=30)
             else:
                 if not title.strip() or not description.strip():
@@ -103,8 +103,12 @@ with tab1:
                             "category": result.get("category", ""),
                             "department": result.get("department", "")
                         }, timeout=30)
-                        esc_response.raise_for_status()
-                        st.success("Ticket escalated and email sent successfully!")
+                        
+                        if esc_response.status_code == 503:
+                            st.warning("SMTP credentials not configured. Cannot send email.")
+                        else:
+                            esc_response.raise_for_status()
+                            st.success("Ticket escalated and email sent successfully!")
                     except Exception as e:
                         st.error(f"Escalation failed: {e}")
 
