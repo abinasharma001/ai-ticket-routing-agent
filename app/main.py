@@ -1,9 +1,21 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from loguru import logger
+import io
+
+try:
+    import pytesseract
+    from PIL import Image
+except ImportError:
+    pytesseract = None
 
 from app.models.classifier import TicketClassifier
 from app.services.routing_service import route_category_to_department
+from app.utils.db import init_db, get_all_tickets
+from app.retriever.retriever import build_index, retrieve_similar_tickets
+from app.services.resolution_service import ResolutionService
+
+resolution_service = ResolutionService()
 
 # ------------------------------
 # GLOBAL MODEL
@@ -59,9 +71,15 @@ def load_model():
         is_trained = True
 
         logger.info("✅ Model trained successfully")
+        
+        logger.info("🚀 Initializing Database and Retriever Index...")
+        init_db()
+        tickets = get_all_tickets()
+        build_index(tickets)
+        logger.info("✅ Retriever indexed successfully")
 
     except Exception as e:
-        logger.error(f"❌ Model training failed: {e}")
+        logger.error(f"❌ Startup initialization failed: {e}")
 
 # ------------------------------
 # ROUTES
@@ -75,6 +93,31 @@ def home():
 def health():
     return {"status": "ok"}
 
+def process_ticket(text: str):
+    result = classifier.predict_ticket(text)
+    department = route_category_to_department(result["label"])
+    
+    similar_tickets = retrieve_similar_tickets(text)
+    resolution_data = resolution_service.suggest_best_resolution(similar_tickets)
+    
+    formatted_similar = []
+    for st in similar_tickets:
+        if isinstance(st, dict):
+            formatted_similar.append({
+                "id": st.get("ticket_id"),
+                "title": st.get("ticket_text", "").split("\n")[0] if "ticket_text" in st else "",
+                "resolution": st.get("resolution"),
+                "score": st.get("similarity")
+            })
+
+    return {
+        "category": result["label"],
+        "department": department,
+        "confidence": result["confidence"],
+        "resolution": resolution_data.get("best_resolution"),
+        "similar_tickets": formatted_similar
+    }
+
 @app.post("/predict")
 def predict_ticket(request: TicketRequest):
     global is_trained
@@ -86,19 +129,35 @@ def predict_ticket(request: TicketRequest):
         )
 
     try:
-        result = classifier.predict_ticket(request.text)
-
-        department = route_category_to_department(result["label"])
-
-        return {
-            "input": request.text,
-            "category": result["label"],
-            "confidence": result["confidence"],
-            "department": department
-        }
+        return process_ticket(request.text)
 
     except Exception as e:
         logger.error(f"Prediction error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/analyze-image")
+async def analyze_image(file: UploadFile = File(...)):
+    global is_trained
+
+    if not is_trained:
+        raise HTTPException(status_code=500, detail="Model not ready")
+        
+    if pytesseract is None:
+        raise HTTPException(status_code=500, detail="pytesseract is not installed")
+
+    try:
+        content = await file.read()
+        image = Image.open(io.BytesIO(content))
+        extracted_text = pytesseract.image_to_string(image)
+        
+        if not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from image")
+            
+        result = process_ticket(extracted_text)
+        result["extracted_text"] = extracted_text
+        return result
+    except Exception as e:
+        logger.error(f"Image analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
