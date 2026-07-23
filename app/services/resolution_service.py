@@ -14,7 +14,7 @@ class ResolutionService:
         candidates = [item for item in retrieved_tickets if isinstance(item, dict)]
         if not candidates:
             return {
-                "best_resolution": "Please investigate logs and restart related services.",
+                "best_resolution": "No highly similar historical ticket found. Please investigate logs and restart related services.",
                 "similarity_score": 0.0,
             }
 
@@ -22,7 +22,7 @@ class ResolutionService:
         best_similarity = float(best_match.get("similarity", 0.0))
         if best_similarity < 0.5:
             return {
-                "best_resolution": "Please investigate logs and restart related services.",
+                "best_resolution": "No highly similar historical ticket found. Please investigate logs and restart related services.",
                 "similarity_score": best_similarity,
             }
 

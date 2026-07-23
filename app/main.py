@@ -1,7 +1,12 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from pydantic import BaseModel
-from loguru import logger
+from __future__ import annotations
+
 import io
+from time import perf_counter
+
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
+from loguru import logger
+from pydantic import BaseModel, Field
 
 try:
     import pytesseract
@@ -18,6 +23,8 @@ from app.utils.email_service import send_escalation_email
 
 resolution_service = ResolutionService()
 
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
 # ------------------------------
 # GLOBAL MODEL
 # ------------------------------
@@ -31,20 +38,49 @@ is_trained = False
 
 app = FastAPI(
     title="AI Ticket Routing API",
-    version="1.0.0"
+    version="1.0.0",
+    description="AI-powered ticket routing, similarity search, OCR analysis, and escalation services.",
 )
+
+
+@app.middleware("http")
+async def log_request_timing(request: Request, call_next):
+    started_at = perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        elapsed_ms = (perf_counter() - started_at) * 1000
+        logger.exception(
+            "Unhandled error on %s %s after %.2f ms: %s",
+            request.method,
+            request.url.path,
+            elapsed_ms,
+            exc,
+        )
+        raise
+
+    elapsed_ms = (perf_counter() - started_at) * 1000
+    logger.info("%s %s -> %s in %.2f ms", request.method, request.url.path, response.status_code, elapsed_ms)
+    response.headers["X-Response-Time-ms"] = f"{elapsed_ms:.2f}"
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, exc: Exception):
+    logger.exception("Unhandled application error: %s", exc)
+    return JSONResponse(status_code=500, content={"detail": "An unexpected server error occurred."})
 
 # ------------------------------
 # REQUEST SCHEMA
 # ------------------------------
 
 class TicketRequest(BaseModel):
-    text: str
+    text: str = Field(..., min_length=1, max_length=10_000)
 
 class EscalationRequest(BaseModel):
-    issue: str
-    category: str
-    department: str
+    issue: str = Field(..., min_length=1, max_length=20_000)
+    category: str = Field(..., min_length=1, max_length=120)
+    department: str = Field(..., min_length=1, max_length=120)
 
 # ------------------------------
 # AUTO LOAD MODEL (IMPORTANT 🔥)
@@ -87,92 +123,132 @@ def load_model():
     except Exception as e:
         logger.error(f"❌ Startup initialization failed: {e}")
 
-# ------------------------------
-# ROUTES
-# ------------------------------
 
-@app.get("/")
-def home():
-    return {"message": "AI Ticket Routing API is running 🚀"}
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
 
-def process_ticket(text: str):
+def _safe_http_error(status_code: int, message: str) -> HTTPException:
+    return HTTPException(status_code=status_code, detail=message)
+
+
+def _format_similar_ticket(ticket: dict[str, object]) -> dict[str, object]:
+    raw_similarity = float(ticket.get("similarity", 0.0) or 0.0)
+    return {
+        "id": ticket.get("ticket_id", ticket.get("id")),
+        "title": ticket.get("ticket_text", "").split("\n")[0] if ticket.get("ticket_text") else "",
+        "ticket_text": ticket.get("ticket_text", ""),
+        "resolution": ticket.get("resolution"),
+        "score": raw_similarity,
+        "category": ticket.get("category", ""),
+        "department": ticket.get("department", ""),
+    }
+
+
+def process_ticket(text: str) -> dict[str, object]:
+    ticket_started_at = perf_counter()
     result = classifier.predict_ticket(text)
     department = route_category_to_department(result["label"])
-    
+
     similar_tickets = retrieve_similar_tickets(text)
     resolution_data = resolution_service.suggest_best_resolution(similar_tickets)
-    
-    formatted_similar = []
-    for st in similar_tickets:
-        if isinstance(st, dict):
-            formatted_similar.append({
-                "id": st.get("ticket_id"),
-                "title": st.get("ticket_text", "").split("\n")[0] if "ticket_text" in st else "",
-                "resolution": st.get("resolution"),
-                "score": st.get("similarity")
-            })
 
-    # Log to history
-    log_prediction(text, result["label"], department, result["confidence"])
+    formatted_similar: list[dict[str, object]] = []
+    for similar_ticket in similar_tickets:
+        if isinstance(similar_ticket, dict):
+            formatted_similar.append(_format_similar_ticket(similar_ticket))
+
+    processing_ms = (perf_counter() - ticket_started_at) * 1000
+
+    try:
+        log_prediction(text, result["label"], department, result["confidence"], processing_ms=processing_ms)
+    except Exception as exc:
+        logger.exception("Failed to persist prediction history: %s", exc)
 
     return {
         "category": result["label"],
         "department": department,
         "confidence": result["confidence"],
         "solution": resolution_data.get("best_resolution"),
-        "similar_tickets": formatted_similar
+        "similar_tickets": formatted_similar,
+        "processing_ms": round(processing_ms, 2),
     }
+
+# ------------------------------
+# ROUTES
+# ------------------------------
+
+@app.get("/")
+def home():
+    try:
+        return {"message": "AI Ticket Routing API is running 🚀"}
+    except Exception as exc:
+        logger.exception("Home endpoint failed: %s", exc)
+        raise _safe_http_error(500, "Service unavailable.") from exc
+
+@app.get("/health")
+def health():
+    try:
+        return {"status": "ok"}
+    except Exception as exc:
+        logger.exception("Health endpoint failed: %s", exc)
+        raise _safe_http_error(500, "Service unavailable.") from exc
 
 @app.post("/predict")
 def predict_ticket(request: TicketRequest):
     global is_trained
 
-    if not is_trained:
-        raise HTTPException(
-            status_code=500,
-            detail="Model not ready"
-        )
-
     try:
+        if not is_trained:
+            raise _safe_http_error(503, "Model not ready.")
+
         return process_ticket(request.text)
 
-    except Exception as e:
-        logger.error(f"Prediction error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Prediction error: %s", exc)
+        raise _safe_http_error(500, "Prediction failed. Please try again.") from exc
 
 @app.post("/analyze-image")
 async def analyze_image(file: UploadFile = File(...)):
     global is_trained
 
     if not is_trained:
-        raise HTTPException(status_code=500, detail="Model not ready")
-        
+        raise _safe_http_error(503, "Model not ready.")
+
     if pytesseract is None:
-        raise HTTPException(status_code=500, detail="pytesseract is not installed")
+        raise _safe_http_error(503, "OCR engine is not available on the server.")
 
     try:
-        image = Image.open(file.file)
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise _safe_http_error(400, "Only image uploads are supported.")
+
+        image_bytes = await file.read()
+        if not image_bytes:
+            raise _safe_http_error(400, "Uploaded file is empty.")
+        if len(image_bytes) > MAX_IMAGE_BYTES:
+            raise _safe_http_error(413, "Uploaded image is too large. Please use a file under 5 MB.")
+
         try:
+            image = Image.open(io.BytesIO(image_bytes))
+            image.verify()
+            image = Image.open(io.BytesIO(image_bytes))
             extracted_text = pytesseract.image_to_string(image)
         except Exception as ocr_e:
-            logger.error(f"Tesseract OCR failed. Is Tesseract installed? Error: {ocr_e}")
-            raise HTTPException(status_code=500, detail="OCR engine failure. Ensure Tesseract is installed.")
+            logger.exception("Tesseract OCR failed: %s", ocr_e)
+            raise _safe_http_error(500, "OCR engine failure. Please try another image.") from ocr_e
         
         if not extracted_text.strip():
-            raise HTTPException(status_code=400, detail="Could not extract text from image")
-            
+            raise _safe_http_error(422, "No text could be extracted from the uploaded image.")
+
         result = process_ticket(extracted_text)
         result["extracted_text"] = extracted_text
         return result
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Image analysis error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.exception("Image analysis error: %s", exc)
+        raise _safe_http_error(500, "Image analysis failed. Please try again.") from exc
+
 @app.post("/escalate")
 def escalate_ticket(request: EscalationRequest):
     try:
@@ -180,15 +256,28 @@ def escalate_ticket(request: EscalationRequest):
         if success:
             return {"message": "Escalation email sent successfully."}
         else:
-            raise HTTPException(status_code=500, detail="Failed to send escalation email. Check server logs.")
+            raise _safe_http_error(500, "Failed to send escalation email.")
     except ValueError as ve:
-        raise HTTPException(status_code=503, detail=str(ve))
+        raise _safe_http_error(503, str(ve))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Escalation error: %s", exc)
+        raise _safe_http_error(500, "Escalation failed. Please try again.") from exc
 
 @app.get("/history")
 def get_history():
-    return get_prediction_history()
+    try:
+        return get_prediction_history()
+    except Exception as exc:
+        logger.exception("History endpoint failed: %s", exc)
+        raise _safe_http_error(500, "Unable to load history.") from exc
 
 
 @app.get("/test")
 def test():
-    return {"message": "Test endpoint working 🎯"}
+    try:
+        return {"message": "Test endpoint working 🎯"}
+    except Exception as exc:
+        logger.exception("Test endpoint failed: %s", exc)
+        raise _safe_http_error(500, "Service unavailable.") from exc

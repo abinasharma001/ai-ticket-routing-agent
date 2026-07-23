@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -14,6 +15,18 @@ try:
 except ImportError:  # pragma: no cover - fallback for environments without faiss
     faiss = None
 
+try:
+    from sklearn.metrics.pairwise import cosine_similarity
+except ImportError:  # pragma: no cover - fallback for environments without sklearn extras
+    cosine_similarity = None
+
+
+@lru_cache(maxsize=2)
+def _load_model(model_name: str) -> SentenceTransformer | None:
+    if SentenceTransformer is None:
+        return None
+    return SentenceTransformer(model_name)
+
 
 @dataclass
 class RetrievalItem:
@@ -27,6 +40,7 @@ class RetrievalItem:
 class SemanticRetriever:
     model_name: str = "all-MiniLM-L6-v2"
     top_k: int = 3
+    similarity_threshold: float = 0.35
     model: SentenceTransformer | None = field(init=False)
     index: Any = field(default=None, init=False)
     tickets: list[dict[str, Any]] = field(default_factory=list, init=False)
@@ -35,10 +49,7 @@ class SemanticRetriever:
 
     def __post_init__(self) -> None:
         """Load the embedding model once during retriever initialization."""
-        if SentenceTransformer is not None:
-            self.model = SentenceTransformer(self.model_name)
-        else:
-            self.model = None
+        self.model = _load_model(self.model_name)
 
     def build_index(self, data: list[dict[str, Any]]) -> None:
         """Build and cache embeddings/index for retrieval.
@@ -80,41 +91,58 @@ class SemanticRetriever:
         If the dataset is empty, returns a fallback suggestion list.
         """
         if not query:
-            return ["No similar tickets found. Suggested resolution based on AI model."]
+            return []
         if self.index is None or not self.tickets or self.model is None:
-            return ["No similar tickets found. Suggested resolution based on AI model."]
+            return []
 
         query_embedding = np.asarray(self.model.encode([query], normalize_embeddings=True), dtype="float32")
 
         if faiss is not None and hasattr(self.index, "search"):
-            scores, indices = self.index.search(query_embedding, min(3, len(self.tickets)))
+            search_size = min(max(self.top_k * 2, self.top_k), len(self.tickets))
+            scores, indices = self.index.search(query_embedding, search_size)
             ranked = zip(indices[0], scores[0])
-        else:
+        elif cosine_similarity is not None:
             stored_embeddings = np.asarray(self.index, dtype="float32")
             similarities = cosine_similarity(query_embedding, stored_embeddings)[0]
-            ranked_indices = np.argsort(similarities)[::-1][: min(3, len(self.tickets))]
+            ranked_indices = np.argsort(similarities)[::-1][: min(max(self.top_k * 2, self.top_k), len(self.tickets))]
             ranked = ((int(index), float(similarities[index])) for index in ranked_indices)
+        else:
+            return []
 
         results: list[dict[str, Any]] = []
+        seen_ticket_ids: set[Any] = set()
         for index, score in ranked:
             if index < 0:
                 continue
+            if float(score) < self.similarity_threshold:
+                continue
             ticket = self.tickets[int(index)]
+            ticket_id = ticket.get("ticket_id", ticket.get("id"))
+            if ticket_id in seen_ticket_ids:
+                continue
+            seen_ticket_ids.add(ticket_id)
             results.append(
                 {
-                    "ticket_id": ticket.get("ticket_id", ticket.get("id")),
+                    "ticket_id": ticket_id,
                     "ticket_text": self._ticket_to_text(ticket),
                     "resolution": ticket.get("resolution", ""),
                     "similarity": float(score),
+                    "category": ticket.get("category", ""),
+                    "department": ticket.get("department", ""),
                 }
             )
         if not results:
-            return ["No similar tickets found. Suggested resolution based on AI model."]
-        return results
+            return []
+
+        results.sort(key=lambda item: float(item.get("similarity", 0.0)), reverse=True)
+        return results[: self.top_k]
 
     @staticmethod
     def _compute_signature(tickets: list[dict[str, Any]]) -> tuple[int, int]:
-        descriptions = "|".join(str(item.get("description", item.get("ticket_text", ""))) for item in tickets)
+        descriptions = "|".join(
+            f"{item.get('id', item.get('ticket_id', ''))}:{item.get('subject', '')}:{item.get('description', item.get('ticket_text', ''))}:{item.get('updated_at', '')}"
+            for item in tickets
+        )
         return len(tickets), hash(descriptions)
 
     @staticmethod
